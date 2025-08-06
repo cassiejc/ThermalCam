@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Thermal Monitoring System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen p-4 font-sans">
+    <div class="max-w-[1400px] mx-auto bg-white rounded-xl shadow-lg overflow-hidden">
+        <div class="bg-gradient-to-r from-slate-800 to-slate-700 text-white text-center p-6">
+            <h1 class="text-3xl font-bold mb-1">Thermal Monitoring System</h1>
+            <p class="text-base opacity-90">Real-time Temperature Monitoring with ESP32 - Persistent Object Storage + Colormap Selection</p>
+        </div>
+        <div class="grid md:grid-cols-[2fr,1fr] gap-5 p-5">
+            <!-- Video Section -->
+            <div class="bg-gray-50 rounded-lg p-5 flex flex-col justify-center items-center min-h-[600px]">
+                <div class="relative bg-black rounded-lg overflow-hidden mb-5 video-container w-full min-w-[700px] max-w-[900px] min-h-[500px] max-h-[700px] aspect-[4/3]">
+                    <img id="thermal-video" src="/video_feed" alt="Thermal Video Stream" class="w-full h-auto block cursor-crosshair rounded-lg min-h-[500px] max-h-[700px] min-w-[700px] max-w-[900px] object-contain">
+                    <div class="absolute top-2 left-2 bg-black/70 text-white p-2 rounded text-xs space-y-1">
+                        <div>Status: <span id="camera-status">Stopped</span></div>
+                        <div>Max Temp: <span id="max-temp">0</span>°C</div>
+                        <div>Objects: <span id="objects-count">0</span></div>
+                        <div id="mirror-indicator" class="text-yellow-400 font-bold" style="display: none;">🪞 MIRROR MODE</div>
+                    </div>
+                    <div class="drawing-helper absolute border-2 border-dashed border-yellow-300 bg-yellow-200/20 pointer-events-none hidden" id="drawing-helper"></div>
+                </div>
+                <div class="flex flex-wrap gap-2 mb-4">
+                    <button class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded font-semibold text-sm transition" onclick="startCamera()">Start Camera</button>
+                    <button class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-semibold text-sm transition" onclick="stopCamera()">Stop Camera</button>
+                    <button class="bg-yellow-400 hover:bg-yellow-500 text-gray-900 px-4 py-2 rounded font-semibold text-sm transition" onclick="clearObjects()">Clear All Objects</button>
+                    <button class="bg-cyan-500 hover:bg-cyan-700 text-white px-4 py-2 rounded font-semibold text-sm transition" id="mirror-toggle" onclick="toggleMirror()">Mirror Video</button>
+                </div>
+
+                <div id="polygon-instruction" class="polygon-instruction bg-purple-100 text-purple-900 p-3 rounded mb-3 font-bold border border-purple-200" style="display: none;">
+                    Klik untuk menambahkan titik. Klik kanan untuk menggambar poligon.
+                </div>
+                <div class="startup-info bg-green-100 text-green-800 border border-green-200 rounded p-3 mb-3 text-sm">
+                    <strong>🔄 Auto-Loading:</strong> Monitoring objects are automatically loaded on startup and saved after each change. Your configuration persists between service restarts.
+                </div>
+                <div class="bg-blue-50 border border-blue-200 rounded p-4 mt-4">
+                    <h4 class="text-blue-900 font-semibold mb-2">Usage Instructions:</h4>
+                    <ul class="list-disc ml-6 text-blue-900 text-sm space-y-1">
+                        <li><strong>Point:</strong> Click on image to add point monitoring</li>
+                        <li><strong>Bounding Box:</strong> Drag mouse to create rectangle area</li>
+                        <li><strong>Line:</strong> Drag mouse to create line monitoring</li>
+                        <li><strong>Polygon:</strong> Click multiple points, right-click to complete</li>
+                        <li><strong>Free Cursor:</strong> Enable cursor mode to see real-time temperature</li>
+                    </ul>
+                </div>
+            </div>
+            <!-- Controls Section -->
+            <div class="bg-gray-50 rounded-lg p-5 max-h-screen overflow-y-auto">
+                <div class="mb-6">
+                    <h3 class="text-gray-800 font-semibold mb-2 border-b-2 border-blue-500 pb-1">Monitoring Mode</h3>
+                    <select id="monitoring-mode" onchange="updateMode()" class="w-full p-2 border border-gray-300 rounded mb-2 text-sm">
+                        <option value="POINT">Point</option>
+                        <option value="BBOX" selected>Bounding Box</option>
+                        <option value="LINE">Line</option>
+                        <option value="POLYGON">Polygon</option>
+                        <option value="CURSOR">Free Cursor</option>
+                    </select>
+                    <div class="inline-block bg-cyan-600 text-white px-3 py-1 rounded-full text-xs font-semibold mb-2" id="current-mode">Bounding Box</div>
+                    <div id="cursor-controls" class="mt-2" style="display: none;">
+                        <button class="bg-cyan-500 hover:bg-yellow-400 text-white font-semibold px-3 py-1 rounded text-xs transition" id="cursor-toggle" onclick="toggleCursor()">Enable Cursor</button>
+                        <div id="cursor-temp-display" class="mt-2 font-bold text-cyan-600 bg-gray-100 px-3 py-1 rounded border border-gray-200 inline-block">
+                            Cursor Temp: <span id="cursor-temp-value">0.0</span>°C
+                        </div>
+                    </div>
+                    <!-- Polygon Finish Button Container -->
+                    <div id="polygon-finish-container" class="mt-3" style="display: none;">
+                        <button id="polygon-finish-button" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold px-4 py-2 rounded text-sm transition-colors" onclick="completePolygon()">
+                            Selesai - Gambar Poligon
+                        </button>
+                    </div>
+                </div>
+                <div class="mb-6">
+                    <h3 class="text-gray-800 font-semibold mb-2 border-b-2 border-blue-500 pb-1">ESP32 Configuration</h3>
+                    <div class="bg-yellow-100 border border-yellow-200 rounded p-3">
+                        <div class="flex justify-between text-sm mb-1">
+                            <span>ESP32 Host:</span>
+                            <span id="esp32-host">Loading...</span>
+                        </div>
+                        <div class="flex justify-between text-sm mb-2">
+                            <span>ESP32 Port:</span>
+                            <span id="esp32-port">Loading...</span>
+                        </div>
+                        <button class="bg-gray-500 hover:bg-gray-700 text-white px-3 py-1 rounded text-xs font-semibold mt-2" onclick="updateESP32Config()">Configure ESP32</button>
+                    </div>
+                </div>
+                <!-- ========== TAMBAHAN: Colormap Settings Section ========== -->
+                <div class="mb-6">
+                    <h3 class="text-gray-800 font-semibold mb-2 border-b-2 border-blue-500 pb-1">Colormap Settings</h3>
+                    <div class="bg-indigo-100 border border-indigo-200 rounded p-3">
+                        <label for="colormap-select" class="block text-sm font-semibold text-indigo-900 mb-2">Thermal Colormap:</label>
+                        <select id="colormap-select" onchange="changeColormap()" class="w-full p-2 border border-indigo-300 rounded bg-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                            <option value="INFERNO">Inferno</option>
+                            <option value="PLASMA">Plasma</option>
+                            <option value="VIRIDIS">Viridis</option>
+                            <option value="JET">Jet</option>
+                            <option value="HOT">Hot</option>
+                            <option value="COOL">Cool</option>
+                            <option value="RAINBOW">Rainbow</option>
+                            <option value="OCEAN">Ocean</option>
+                            <option value="SPRING">Spring</option>
+                            <option value="SUMMER">Summer</option>
+                            <option value="AUTUMN">Autumn</option>
+                            <option value="WINTER">Winter</option>
+                            <option value="BONE">Bone</option>
+                            <option value="PINK">Pink</option>
+                            <option value="HSV">HSV</option>
+                            <option value="PARULA">Parula</option>
+                        </select>
+                    </div>
+                </div>
+                <!-- ========== END Colormap Settings Section ========== -->
+                <div class="mb-6">
+                    <h3 class="text-gray-800 font-semibold mb-2 border-b-2 border-blue-500 pb-1">System Status</h3>
+                    <div class="bg-gray-200 rounded p-3">
+                        <div class="flex justify-between text-sm mb-1">
+                            <span>Camera:</span>
+                            <span class="font-bold" id="status-camera">Stopped</span>
+                        </div>
+                        <div class="flex justify-between text-sm mb-1">
+                            <span>ESP32 Camera:</span>
+                            <span class="font-bold" id="status-esp32">Checking...</span>
+                        </div>
+                        <div class="flex justify-between text-sm mb-1">
+                            <span>Venom Bot:</span>
+                            <span class="font-bold" id="status-venom-bot">Checking...</span>
+                        </div>
+                        <div class="flex justify-between text-sm mb-1">
+                            <span>InfluxDB:</span>
+                            <span class="font-bold" id="status-influxdb">Checking...</span>
+                        </div>
+                        <div class="flex justify-between text-sm mb-1">
+                            <span>Persistence:</span>
+                            <span class="font-bold" id="status-persistence">Checking...</span>
+                        </div>
+                        <!-- ========== TAMBAHAN: Colormap Status Display ========== -->
+                        <div class="flex justify-between text-sm mb-1">
+                            <span>Colormap:</span>
+                            <span class="font-bold" id="status-colormap">Loading...</span>
+                        </div>
+                        <!-- ========== END Colormap Status Display ========== -->
+                        <div class="flex justify-between text-sm mb-1">
+                            <span>Max Temperature:</span>
+                            <span class="font-bold" id="status-max-temp">0°C</span>
+                        </div>
+                        <div class="flex justify-between text-sm mb-1">
+                            <span>Objects Count:</span>
+                            <span class="font-bold" id="status-objects">0</span>
+                        </div>
+                        <div class="flex justify-between text-sm">
+                            <span>Sensor Type:</span>
+                            <span class="font-bold">ESP32 Thermal Camera</span>
+                        </div>
+                    </div>
+                </div>
+                <div id="overheat-alert" class="bg-red-100 border border-red-300 text-red-800 rounded p-3 mb-4 font-semibold" style="display: none;">
+                    <strong>OVERHEAT DETECTED!</strong>
+                    <div id="overheat-list"></div>
+                </div>
+                <div class="mb-6">
+                    <h3 class="text-gray-800 font-semibold mb-2 border-b-2 border-blue-500 pb-1">WhatsApp Notifications</h3>
+                    <div class="border border-gray-300 rounded">
+                        <div class="flex bg-gray-100 border-b border-gray-300">
+                            <button class="flex-1 py-2 px-3 font-bold tab-button bg-gray-200 text-gray-700" onclick="switchTab(event, 'contacts-tab')">Personal Contacts</button>
+                            <button class="flex-1 py-2 px-3 font-bold tab-button bg-gray-200 text-gray-700" onclick="switchTab(event, 'groups-tab')">Groups</button>
+                            <button class="flex-1 py-2 px-3 font-bold tab-button bg-gray-200 text-gray-700" onclick="switchTab(event, 'test-tab')">Test</button>
+                        </div>
+                        <div id="contacts-tab" class="tab-content p-4 bg-white">
+                            <div class="tab-pane">
+                                <input type="text" id="wa-nomor" placeholder="WhatsApp Number (62xxx)" class="w-full p-2 border border-gray-300 rounded mb-2 text-sm">
+                                <input type="text" id="wa-nama" placeholder="Name (Optional)" class="w-full p-2 border border-gray-300 rounded mb-2 text-sm">
+                                <button class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm font-semibold" onclick="addContact()">Add Contact</button>
+                                <div class="objects-list max-h-[200px] mt-3 overflow-y-auto border border-gray-200 rounded bg-white" id="contacts-list">
+                                    <div class="py-2 text-center text-gray-500">Loading contacts...</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="groups-tab" class="tab-content pt-0 pb-4 px-4 bg-white" style="display: none;">
+                            <div class="tab-pane">
+                                <input type="text" id="wa-group-id" placeholder="Group ID (xxx@g.us)" class="w-full p-2 border border-gray-300 rounded text-sm">
+                                <input type="text" id="wa-group-nama" placeholder="Group Name (Optional)" class="w-full p-2 border border-gray-300 rounded mb-2 text-sm">
+                                <button class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm font-semibold" onclick="addGroup()">Add Group</button>
+                                <div class="my-2">
+                                    <button class="bg-cyan-500 hover:bg-cyan-700 text-white px-3 py-1 rounded text-xs font-semibold" onclick="getGroupsFromVenomBot()">Get Groups from Venom Bot</button>
+                                </div>
+                                <div class="objects-list max-h-[200px] mt-3 overflow-y-auto border border-gray-200 rounded bg-white" id="groups-list">
+                                    <div class="py-2 text-center text-gray-500">Loading groups...</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="test-tab" class="tab-content pt-0 px-4 bg-white" style="display: none;">
+                            <div class="tab-pane">
+                                <input type="text" id="wa-test-nomor" placeholder="Test Personal Number (62xxx)" class="w-full p-2 border border-gray-300 rounded text-sm">
+                                <input type="text" id="wa-test-group" placeholder="Test Group ID (xxx@g.us)" class="w-full p-2 border border-gray-300 rounded mb-2 text-sm">
+                                <button class="bg-yellow-400 hover:bg-yellow-500 text-gray-900 px-3 py-1 rounded text-sm font-semibold" onclick="testWhatsApp()">Send Test Message</button>
+                                <div class="mt-2 text-xs text-gray-500">
+                                    <strong>Note:</strong> Enter either personal number OR group ID for testing.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="mb-6">
+                    <h3 class="text-gray-800 font-semibold mb-2 border-b-2 border-blue-500 pb-1">Monitoring Objects</h3>
+                    <div class="objects-list max-h-[400px] overflow-y-auto border border-gray-200 rounded bg-white" id="objects-list">
+                        <div class="py-5 text-center text-gray-500">Loading objects...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Threshold Modal -->
+    <div id="threshold-modal" class="fixed z-[1000] left-0 top-0 w-full h-full bg-black/40 hidden flex items-center justify-center threshold-modal">
+        <div class="bg-white rounded-lg shadow-xl w-[400px] max-w-[90%] p-6">
+            <div class="flex justify-between items-center mb-5">
+                <h3 class="text-lg font-bold" id="modal-title">Set Threshold</h3>
+                <span class="text-gray-400 text-2xl font-bold cursor-pointer hover:text-black transition-colors" onclick="closeThresholdModal()">&times;</span>
+            </div>
+            <div>
+                <label for="modal-threshold-input" class="block mb-2 font-semibold">Threshold Temperature (°C):</label>
+                <input type="number" id="modal-threshold-input" min="1" max="300" value="50" class="w-full p-2 border border-gray-300 rounded mb-4 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <div class="text-sm text-gray-600 mb-4">
+                    <strong>Thermal Range:</strong> Typically 1-300°C for ESP32 thermal camera. Default is 50°C for most industrial applications.
+                </div>
+                <div class="flex gap-2">
+                    <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-semibold text-sm transition-colors" onclick="saveThreshold()">Save</button>
+                    <button class="bg-gray-500 hover:bg-gray-700 text-white px-4 py-2 rounded font-semibold text-sm transition-colors" onclick="closeThresholdModal()">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tab Switching Script -->
+    <script>
+        function switchTab(evt, tabName) {
+            var i, tabcontent, tablinks;
+            
+            // Hide all tab contents
+            tabcontent = document.getElementsByClassName("tab-content");
+            for (i = 0; i < tabcontent.length; i++) {
+                tabcontent[i].style.display = "none";
+            }
+            
+            // Remove active styling from all tab buttons
+            tablinks = document.getElementsByClassName("tab-button");
+            for (i = 0; i < tablinks.length; i++) {
+                tablinks[i].classList.remove("bg-blue-600", "text-white", "border-b-2", "border-blue-500", "font-bold", "z-10", "shadow-lg");
+                tablinks[i].classList.add("bg-gray-200", "text-gray-700");
+            }
+            
+            // Show the selected tab content
+            document.getElementById(tabName).style.display = "block";
+            
+            // Add active styling to the clicked button
+            evt.currentTarget.classList.remove("bg-gray-200", "text-gray-700");
+            evt.currentTarget.classList.add("bg-blue-600", "text-white", "border-b-2", "border-blue-500", "font-bold", "z-10", "shadow-lg");
+        }
+        
+        // Initialize tabs on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Show only the first tab (Personal Contacts) by default
+            var tabcontent = document.getElementsByClassName("tab-content");
+            var tabbuttons = document.getElementsByClassName("tab-button");
+            
+            for (var i = 0; i < tabcontent.length; i++) {
+                if (i === 0) {
+                    tabcontent[i].style.display = "block";
+                    // Set first button as active with Tailwind classes
+                    tabbuttons[i].classList.remove("bg-gray-200", "text-gray-700");
+                    tabbuttons[i].classList.add("bg-blue-600", "text-white", "border-b-2", "border-blue-500", "font-bold", "z-10", "shadow-lg");
+                } else {
+                    tabcontent[i].style.display = "none";
+                    // Set other buttons as inactive with Tailwind classes
+                    tabbuttons[i].classList.remove("bg-blue-600", "text-white", "border-b-2", "border-blue-500", "font-bold", "z-10", "shadow-lg");
+                    tabbuttons[i].classList.add("bg-gray-200", "text-gray-700");
+                }
+            }
+        });
+    </script>
+
+    <!-- Main JavaScript -->
+    <script src="{{ url_for('static', filename='js/index.js') }}"></script>
+
+    <!-- Custom Styles for better UX -->
+    <style>
+        .cursor-info {
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            pointer-events: none;
+            z-index: 10000;
+        }
+
+        .normal {
+            color: #16a34a;
+            font-weight: bold;
+        }
+
+        .overheat {
+            color: #dc2626;
+            font-weight: bold;
+        }
+
+        .status-value {
+            color: #1f2937;
+            font-weight: bold;
+        }
+
+        .cursor-crosshair {
+            cursor: crosshair !important;
+        }
+
+        .threshold-modal {
+            backdrop-filter: blur(4px);
+        }
+
+        .modal-content {
+            animation: modalFadeIn 0.3s ease-out;
+        }
+
+        @keyframes modalFadeIn {
+            from {
+                opacity: 0;
+                transform: scale(0.9) translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1) translateY(0);
+            }
+        }
+
+        .notification {
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(100%);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        /* Colormap Select Styling */
+        #colormap-select {
+            transition: all 0.2s ease;
+        }
+
+        #colormap-select:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        /* Enhanced focus states */
+        select:focus,
+        input:focus,
+        button:focus {
+            outline: 2px solid #3b82f6;
+            outline-offset: 2px;
+        }
+
+        /* Better button hover effects */
+        button {
+            transition: all 0.2s ease;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        button:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Colormap info styling */
+        .colormap-info {
+            background: linear-gradient(135deg, #e0f2fe 0%, #f3e5f5 100%);
+            border: 1px solid #b39ddb;
+        }
+
+        /* Enhanced status indicators */
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.connected {
+            background-color: #16a34a;
+        }
+
+        .status-indicator.disconnected {
+            background-color: #dc2626;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Improved tab styling */
+        .tab-button {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .tab-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        .tab-button:hover::before {
+            left: 100%;
+        }
+    </style>
+</body>
+</html>
