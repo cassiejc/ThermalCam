@@ -344,7 +344,9 @@ function setupVideoInteraction() {
 }
 
 // Polygon drawing functions
-// Polygon drawing functions
+// Replace the existing polygon-related functions with these enhanced versions
+
+// Enhanced polygon drawing functions with persistent point display
 function handlePolygonClick(x, y, screenX, screenY) {
     if (!isDrawingPolygon) {
         startPolygonDrawing();
@@ -355,6 +357,8 @@ function handlePolygonClick(x, y, screenX, screenY) {
         x: x, y: y,  // Video coordinates for backend
         screenX: screenX, screenY: screenY  // Screen coordinates for visual display
     });
+    
+    // Update visual with all points (no preview point)
     updatePolygonVisual();
     updatePolygonInstruction();
 }
@@ -362,33 +366,27 @@ function handlePolygonClick(x, y, screenX, screenY) {
 function startPolygonDrawing() {
     isDrawingPolygon = true;
     polygonPoints = [];
-    
-    // Ensure polygon helper is properly configured and visible
     polygonHelper.style.display = 'block';
-    polygonHelper.style.visibility = 'visible';
-    polygonHelper.style.opacity = '1';
-    polygonHelper.innerHTML = ''; // Clear any existing content
-    
-    // Show instruction
-    const instruction = document.getElementById('polygon-instruction');
-    if (instruction) {
-        instruction.style.display = 'block';
-    }
-    
-    console.log('Polygon drawing started, helper element:', polygonHelper);
+    document.getElementById('polygon-instruction').style.display = 'block';
 }
 
-function updatePolygonVisual() {
-    if (polygonPoints.length === 0) return;
-
-    // Clear existing content but preserve the element
+// Enhanced function to show all points persistently with optional preview
+function updatePolygonVisual(previewPoint = null) {
+    // Clear helper completely
     polygonHelper.innerHTML = '';
+    if (polygonPoints.length === 0 && !previewPoint) return;
 
-    // Draw points and lines
+    // Create all visual elements
+    const allPoints = [...polygonPoints];
+    if (previewPoint) {
+        allPoints.push(previewPoint);
+    }
+
+    // Draw all the existing points first (these are permanent)
     for (let i = 0; i < polygonPoints.length; i++) {
         const point = polygonPoints[i];
-
-        // Create point marker using screen coordinates for visual display
+        
+        // Create permanent point marker
         const marker = document.createElement('div');
         marker.style.cssText = `
             position: absolute;
@@ -426,64 +424,91 @@ function updatePolygonVisual() {
         `;
         number.textContent = i + 1;
         polygonHelper.appendChild(number);
+    }
 
-        // Draw lines between points
-        if (i > 0) {
-            const prevPoint = polygonPoints[i - 1];
-            const line = document.createElement('div');
-            const deltaX = point.screenX - prevPoint.screenX;
-            const deltaY = point.screenY - prevPoint.screenY;
-            const length = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-            const angle = Math.atan2(deltaY, deltaX) * 180 / Math.PI;
+    // If there's a preview point, show it with different styling
+    if (previewPoint) {
+        const previewMarker = document.createElement('div');
+        previewMarker.style.cssText = `
+            position: absolute;
+            left: ${previewPoint.screenX}px;
+            top: ${previewPoint.screenY}px;
+            width: 8px;
+            height: 8px;
+            background: #f59e0b;
+            border: 2px solid white;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 1001;
+            opacity: 0.8;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        `;
+        polygonHelper.appendChild(previewMarker);
+    }
 
-            line.style.cssText = `
-                position: absolute;
-                left: ${prevPoint.screenX}px;
-                top: ${prevPoint.screenY}px;
-                width: ${length}px;
-                height: 3px;
-                background: #8b5cf6;
-                transform: translateY(-50%) rotate(${angle}deg);
-                transform-origin: 0 50%;
-                z-index: 1000;
-                box-shadow: 0 1px 2px rgba(0,0,0,0.3);
-            `;
-            polygonHelper.appendChild(line);
-        }
+    // Draw lines between all points (including preview)
+    for (let i = 1; i < allPoints.length; i++) {
+        const currentPoint = allPoints[i];
+        const prevPoint = allPoints[i - 1];
+        
+        const deltaX = currentPoint.screenX - prevPoint.screenX;
+        const deltaY = currentPoint.screenY - prevPoint.screenY;
+        const length = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+        const angle = Math.atan2(deltaY, deltaX) * 180 / Math.PI;
+
+        // Check if this is a preview line (connecting to preview point)
+        const isPreviewLine = (i === allPoints.length - 1) && previewPoint;
+
+        const line = document.createElement('div');
+        line.style.cssText = `
+            position: absolute;
+            left: ${prevPoint.screenX}px;
+            top: ${prevPoint.screenY}px;
+            width: ${length}px;
+            height: ${isPreviewLine ? '2px' : '3px'};
+            background: ${isPreviewLine ? '#f59e0b' : '#8b5cf6'};
+            opacity: ${isPreviewLine ? '0.7' : '1'};
+            transform: translateY(-50%) rotate(${angle}deg);
+            transform-origin: 0 50%;
+            z-index: 1000;
+            box-shadow: ${isPreviewLine ? 'none' : '0 1px 2px rgba(0,0,0,0.3)'};
+        `;
+        polygonHelper.appendChild(line);
+    }
+
+    // If we have 3+ permanent points and there's a preview, show the closing line
+    if (polygonPoints.length >= 3 && previewPoint) {
+        const firstPoint = polygonPoints[0];
+        const deltaX = firstPoint.screenX - previewPoint.screenX;
+        const deltaY = firstPoint.screenY - previewPoint.screenY;
+        const length = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+        const angle = Math.atan2(deltaY, deltaX) * 180 / Math.PI;
+
+        const closingLine = document.createElement('div');
+        closingLine.style.cssText = `
+            position: absolute;
+            left: ${previewPoint.screenX}px;
+            top: ${previewPoint.screenY}px;
+            width: ${length}px;
+            height: 2px;
+            background: #f59e0b;
+            opacity: 0.5;
+            transform: translateY(-50%) rotate(${angle}deg);
+            transform-origin: 0 50%;
+            z-index: 999;
+            border-style: dashed;
+        `;
+        polygonHelper.appendChild(closingLine);
     }
 }
 
+// Enhanced preview function that maintains all existing points
 function updatePolygonPreview(currentScreenX, currentScreenY) {
-    if (polygonPoints.length === 0) return;
-    
-    // First, redraw all existing points and lines
-    updatePolygonVisual();
+    if (!isDrawingPolygon) return;
 
-    // Then add the preview line from last point to current mouse position
-    const lastPoint = polygonPoints[polygonPoints.length - 1];
-    const previewLine = document.createElement('div');
-    const deltaX = currentScreenX - lastPoint.screenX;
-    const deltaY = currentScreenY - lastPoint.screenY;
-    const length = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-    const angle = Math.atan2(deltaY, deltaX) * 180 / Math.PI;
-
-    previewLine.style.cssText = `
-        position: absolute;
-        left: ${lastPoint.screenX}px;
-        top: ${lastPoint.screenY}px;
-        width: ${length}px;
-        height: 2px;
-        background: #8b5cf6;
-        opacity: 0.5;
-        transform: translateY(-50%) rotate(${angle}deg);
-        transform-origin: 0 50%;
-        z-index: 998;
-        pointer-events: none;
-    `;
-    
-    // Add a class to identify preview elements for easier cleanup
-    previewLine.classList.add('polygon-preview-line');
-    polygonHelper.appendChild(previewLine);
+    // Always show all existing points, plus the preview point
+    const previewPoint = { screenX: currentScreenX, screenY: currentScreenY };
+    updatePolygonVisual(previewPoint);
 }
 
 function completePolygon() {
@@ -504,7 +529,10 @@ function cancelPolygonDrawing() {
     polygonHelper.style.display = 'none';
     polygonHelper.innerHTML = '';
     document.getElementById('polygon-instruction').style.display = 'none';
-    document.getElementById('polygon-finish-container').style.display = 'none';
+    const finishContainer = document.getElementById('polygon-finish-container');
+    if (finishContainer) {
+        finishContainer.style.display = 'none';
+    }
 }
 
 function updatePolygonInstruction() {
@@ -515,15 +543,26 @@ function updatePolygonInstruction() {
     instruction.innerHTML = '';
 
     if (polygonPoints.length === 0) {
-        instruction.textContent = 'Klik untuk menambahkan titik ke-1. Klik kanan untuk menggambar poligon.';
+        instruction.textContent = 'Klik untuk menambahkan titik ke-1. Minimal 3 titik diperlukan.';
     } else if (polygonPoints.length === 1) {
         instruction.textContent = 'Titik ke-1 ditambahkan. Klik untuk menambahkan titik ke-2.';
     } else if (polygonPoints.length === 2) {
         instruction.textContent = 'Titik ke-2 ditambahkan. Klik untuk menambahkan titik ke-3 atau klik kanan untuk menggambar poligon.';
     } else {
-        instruction.textContent = `Titik ke-${polygonPoints.length} ditambahkan. Klik untuk menambahkan titik berikutnya atau klik kanan untuk menggambar poligon.`;
+        instruction.textContent = `${polygonPoints.length} titik ditambahkan. Klik untuk menambahkan titik lagi atau klik kanan untuk menggambar poligon.`;
+    }
+
+    // Show finish button container when we have 3+ points
+    const finishContainer = document.getElementById('polygon-finish-container');
+    if (finishContainer) {
+        if (polygonPoints.length >= 3) {
+            finishContainer.style.display = 'block';
+        } else {
+            finishContainer.style.display = 'none';
+        }
     }
 }
+
 // Reset drawing state
 function resetDrawing() {
     isDrawing = false;
