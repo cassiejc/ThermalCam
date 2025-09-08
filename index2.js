@@ -362,8 +362,20 @@ function handlePolygonClick(x, y, screenX, screenY) {
 function startPolygonDrawing() {
     isDrawingPolygon = true;
     polygonPoints = [];
+    
+    // Ensure polygon helper is properly configured and visible
     polygonHelper.style.display = 'block';
-    document.getElementById('polygon-instruction').style.display = 'block';
+    polygonHelper.style.visibility = 'visible';
+    polygonHelper.style.opacity = '1';
+    polygonHelper.innerHTML = ''; // Clear any existing content
+    
+    // Show instruction
+    const instruction = document.getElementById('polygon-instruction');
+    if (instruction) {
+        instruction.style.display = 'block';
+    }
+    
+    console.log('Polygon drawing started, helper element:', polygonHelper);
 }
 
 function updatePolygonVisual() {
